@@ -1,4 +1,3 @@
-dnl $Id$
 dnl config.m4 for extension swoole
 
 dnl  +----------------------------------------------------------------------+
@@ -15,15 +14,6 @@ dnl  +----------------------------------------------------------------------+
 dnl  | Author: Tianfeng Han  <mikan.tenny@gmail.com>                        |
 dnl  +----------------------------------------------------------------------+
 
-
-dnl Comments in this file start with the string 'dnl'.
-dnl Remove where necessary. This file will not work
-dnl without editing.
-
-dnl If your extension references something external, use with:
-
-dnl Otherwise use enable:
-
 PHP_ARG_ENABLE(swoole-debug, whether to enable swoole debug,
 [  --enable-swoole-debug   Enable swoole debug], no, no)
 
@@ -35,6 +25,12 @@ PHP_ARG_ENABLE(ringbuffer, enable ringbuffer shared memory pool support,
 
 PHP_ARG_ENABLE(async_mysql, enable async_mysql support,
 [  --enable-async-mysql    Do you have mysqli and mysqlnd?], no, no)
+
+PHP_ARG_ENABLE(async_redis, enable async_redis support,
+[  --enable-async-redis    Do you have hiredis?], no, no)
+
+PHP_ARG_ENABLE(async_httpclient, enable async_httpclient support,
+[  --enable-async-httpclient  Enable async httpclient support?], no, no)
 
 PHP_ARG_ENABLE(openssl, enable openssl support,
 [  --enable-openssl        Use openssl?], no, no)
@@ -48,7 +44,7 @@ PHP_ARG_ENABLE(swoole, swoole support,
 AC_DEFUN([SWOOLE_HAVE_PHP_EXT], [
     extname=$1
     haveext=$[PHP_]translit($1,a-z_-,A-Z__)
-    
+
     AC_MSG_CHECKING([for ext/$extname support])
     if test -x "$PHP_EXECUTABLE"; then
         grepext=`$PHP_EXECUTABLE -m | $EGREP ^$extname\$`
@@ -89,6 +85,23 @@ AC_DEFUN([AC_SWOOLE_CPU_AFFINITY],
     ])
 ])
 
+AC_DEFUN([AC_SWOOLE_HAVE_REUSEPORT],
+[
+    AC_MSG_CHECKING([for socket REUSEPORT])
+    AC_TRY_COMPILE(
+    [
+		#include <sys/socket.h>
+    ], [
+        int val = 1;
+		setsockopt(0, SOL_SOCKET, SO_REUSEPORT, &val, sizeof(val));
+    ], [
+        AC_DEFINE([HAVE_REUSEPORT], 1, [have SO_REUSEPORT?])
+        AC_MSG_RESULT([yes])
+    ], [
+        AC_MSG_RESULT([no])
+    ])
+])
+
 AC_MSG_CHECKING([if compiling with clang])
 AC_COMPILE_IFELSE([
     AC_LANG_PROGRAM([], [[
@@ -105,20 +118,20 @@ if test "$CLANG" = "yes"; then
 fi
 
 if test "$PHP_SWOOLE" != "no"; then
-        
+
     PHP_ADD_LIBRARY(pthread)
     PHP_SUBST(SWOOLE_SHARED_LIBADD)
 
-    AC_ARG_ENABLE(debug, 
+    AC_ARG_ENABLE(debug,
         [--enable-debug,  compile with debug symbols],
         [PHP_DEBUG=$enableval],
         [PHP_DEBUG=0]
     )
-  
+
     if test "$PHP_SWOOLE_DEBUG" != "no"; then
         AC_DEFINE(SW_DEBUG, 1, [do we enable swoole debug])
     fi
-    
+
     if test "$PHP_MYSQLI" = "yes"; then
 		AC_DEFINE(HAVE_MYSQLI, 1, [have mysqli extension])
     fi
@@ -138,9 +151,14 @@ if test "$PHP_SWOOLE" != "no"; then
 	if test "$PHP_ASYNC_MYSQL" = "yes"; then
 		AC_DEFINE(SW_ASYNC_MYSQL, 1, [enable async_mysql support])
     fi
-        
+
+	if test "$PHP_ASYNC_HTTPCLIENT" = "yes"; then
+		AC_DEFINE(SW_ASYNC_HTTPCLIENT, 1, [enable async_httpclient support])
+    fi
+
     AC_SWOOLE_CPU_AFFINITY
-    
+    AC_SWOOLE_HAVE_REUSEPORT
+
     SWOOLE_HAVE_PHP_EXT([mysqli], [
         AC_DEFINE(SW_HAVE_MYSQLI, 1, [have mysqli])
     ])
@@ -151,23 +169,26 @@ if test "$PHP_SWOOLE" != "no"; then
 
     CFLAGS="-Wall -pthread $CFLAGS"
     LDFLAGS="$LDFLAGS -lpthread"
-  
+
     AC_CHECK_LIB(c, accept4, AC_DEFINE(HAVE_ACCEPT4, 1, [have accept4]))
     AC_CHECK_LIB(c, signalfd, AC_DEFINE(HAVE_SIGNALFD, 1, [have signalfd]))
     AC_CHECK_LIB(c, timerfd_create, AC_DEFINE(HAVE_TIMERFD, 1, [have timerfd]))
     AC_CHECK_LIB(c, eventfd, AC_DEFINE(HAVE_EVENTFD, 1, [have eventfd]))
     AC_CHECK_LIB(c, epoll_create, AC_DEFINE(HAVE_EPOLL, 1, [have epoll]))
-	AC_CHECK_LIB(c, sendfile,PGSQL_INCLUDE AC_DEFINE(HAVE_SENDFILE, 1, [have sendfile]))
+	  AC_CHECK_LIB(c, sendfile,PGSQL_INCLUDE AC_DEFINE(HAVE_SENDFILE, 1, [have sendfile]))
     AC_CHECK_LIB(c, kqueue, AC_DEFINE(HAVE_KQUEUE, 1, [have kqueue]))
     AC_CHECK_LIB(c, daemon, AC_DEFINE(HAVE_DAEMON, 1, [have daemon]))
     AC_CHECK_LIB(c, mkostemp, AC_DEFINE(HAVE_MKOSTEMP, 1, [have mkostemp]))
+    AC_CHECK_LIB(c, inotify_init, AC_DEFINE(HAVE_INOTIFY, 1, [have inotify]))
+    AC_CHECK_LIB(c, inotify_init1, AC_DEFINE(HAVE_INOTIFY_INIT1, 1, [have inotify_init1]))
     AC_CHECK_LIB(pthread, pthread_rwlock_init, AC_DEFINE(HAVE_RWLOCK, 1, [have pthread_rwlock_init]))
     AC_CHECK_LIB(pthread, pthread_spin_lock, AC_DEFINE(HAVE_SPINLOCK, 1, [have pthread_spin_lock]))
-	AC_CHECK_LIB(pthread, pthread_mutex_timedlock, AC_DEFINE(HAVE_MUTEX_TIMEDLOCK, 1, [have pthread_mutex_timedlock]))
+	  AC_CHECK_LIB(pthread, pthread_mutex_timedlock, AC_DEFINE(HAVE_MUTEX_TIMEDLOCK, 1, [have pthread_mutex_timedlock]))
     AC_CHECK_LIB(pthread, pthread_barrier_init, AC_DEFINE(HAVE_PTHREAD_BARRIER, 1, [have pthread_barrier_init]))
     AC_CHECK_LIB(ssl, SSL_library_init, AC_DEFINE(HAVE_OPENSSL, 1, [have openssl]))
     AC_CHECK_LIB(pcre, pcre_compile, AC_DEFINE(HAVE_PCRE, 1, [have pcre]))
-    
+    AC_CHECK_LIB(hiredis, redisConnect, AC_DEFINE(HAVE_HIREDIS, 1, [have hiredis]))
+
     AC_CHECK_LIB(z, gzgets, [
         AC_DEFINE(SW_HAVE_ZLIB, 1, [have zlib])
         PHP_ADD_LIBRARY(z, 1, SWOOLE_SHARED_LIBADD)
@@ -190,9 +211,16 @@ if test "$PHP_SWOOLE" != "no"; then
         PHP_ADD_LIBRARY(crypt, 1, SWOOLE_SHARED_LIBADD)
         PHP_ADD_LIBRARY(crypto, 1, SWOOLE_SHARED_LIBADD)
     fi
-    
+
+    if test "$PHP_ASYNC_REDIS" = "yes"; then
+        AC_DEFINE(SW_USE_REDIS, 1, [enable async-redis support])
+        PHP_ADD_LIBRARY(hiredis, 1, SWOOLE_SHARED_LIBADD)
+    fi
+
     swoole_source_file="swoole.c \
         swoole_server.c \
+        swoole_server_port.c \
+        swoole_atomic.c \
         swoole_lock.c \
         swoole_client.c \
         swoole_event.c \
@@ -201,9 +229,11 @@ if test "$PHP_SWOOLE" != "no"; then
         swoole_process.c \
         swoole_buffer.c \
         swoole_table.c \
-        swoole_http.c \
-        swoole_websocket.c \
-        swoole_phpng.c \
+        swoole_http_server.c \
+        swoole_websocket_server.c \
+        swoole_http_client.c \
+        swoole_mysql.c \
+        swoole_redis.c \
         src/core/base.c \
         src/core/log.c \
         src/core/hashmap.c \
@@ -212,6 +242,8 @@ if test "$PHP_SWOOLE" != "no"; then
         src/core/string.c \
         src/core/array.c \
         src/core/socket.c \
+        src/core/list.c \
+        src/core/heap.c \
         src/memory/ShareMemory.c \
         src/memory/MemoryGlobal.c \
         src/memory/RingBuffer.c \
@@ -230,7 +262,6 @@ if test "$PHP_SWOOLE" != "no"; then
         src/pipe/PipeBase.c \
         src/pipe/PipeEventfd.c \
         src/pipe/PipeUnsock.c \
-        src/queue/Msg.c \
         src/lock/Semaphore.c \
         src/lock/Mutex.c \
         src/lock/RWLock.c \
@@ -244,11 +275,14 @@ if test "$PHP_SWOOLE" != "no"; then
         src/network/ThreadPool.c \
         src/network/ReactorThread.c \
         src/network/ReactorProcess.c \
+        src/network/Manager.c \
         src/network/Worker.c \
-        src/network/EventTimer.c \
+        src/network/Timer.c \
+        src/network/Port.c \
         src/os/base.c \
         src/os/linux_aio.c \
         src/os/gcc_aio.c \
+        src/os/msg_queue.c \
         src/os/sendfile.c \
         src/os/signal.c \
         src/os/timer.c \
@@ -258,14 +292,12 @@ if test "$PHP_SWOOLE" != "no"; then
         src/protocol/WebSocket.c \
         src/protocol/Mqtt.c \
         src/protocol/Base64.c"
-        
-    if test "$enable_swoole" != "yes"; then
-        swoole_source_file="$swoole_source_file thirdparty/php_http_parser.c"
-        swoole_source_file="$swoole_source_file thirdparty/multipart_parser.c"
-    fi
+
+    swoole_source_file="$swoole_source_file thirdparty/php_http_parser.c"
+    swoole_source_file="$swoole_source_file thirdparty/multipart_parser.c"
 
     PHP_NEW_EXTENSION(swoole, $swoole_source_file, $ext_shared)
-    
+
     PHP_ADD_INCLUDE([$ext_srcdir/include])
 
     PHP_ADD_BUILD_DIR($ext_builddir/src/core)
@@ -280,4 +312,3 @@ if test "$PHP_SWOOLE" != "no"; then
     PHP_ADD_BUILD_DIR($ext_builddir/src/protocol)
     PHP_ADD_BUILD_DIR($ext_builddir/thirdparty)
 fi
-

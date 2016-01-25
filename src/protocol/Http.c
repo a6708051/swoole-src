@@ -111,15 +111,19 @@ int swHttpRequest_get_protocol(swHttpRequest *request)
     return SW_OK;
 }
 
-void swHttpRequest_free(swConnection *conn, swHttpRequest *request)
+void swHttpRequest_free(swConnection *conn)
 {
-    if (conn->http_buffered && request->buffer)
+    swHttpRequest *request = conn->object;
+    if (request)
     {
-        swTrace("RequestShutdown. free buffer=%p, request=%p\n", request->buffer, request);
-        swString_free(request->buffer);
-        conn->http_buffered = 0;
+        if (request->buffer)
+        {
+            swString_free(request->buffer);
+        }
+        bzero(request, sizeof(swHttpRequest));
+        sw_free(request);
+        conn->object = NULL;
     }
-    bzero(request, sizeof(swHttpRequest));
 }
 
 /**
@@ -166,6 +170,32 @@ int swHttpRequest_get_content_length(swHttpRequest *request)
     }
 
     return SW_ERR;
+}
+
+int swHttpRequest_have_content_length(swHttpRequest *request)
+{
+    swString *buffer = request->buffer;
+    char *buf = buffer->str + buffer->offset;
+    int len = buffer->length - buffer->offset;
+
+    char *pe = buf + len;
+    char *p;
+
+    for (p = buf; p < pe; p++)
+    {
+        if (*p == '\r' && *(p + 1) == '\n')
+        {
+            if (strncasecmp(p + 2, SW_STRL("Content-Length") - 1) == 0)
+            {
+                return SW_TRUE;
+            }
+            else
+            {
+                p++;
+            }
+        }
+    }
+    return SW_FALSE;
 }
 
 #ifdef SW_HTTP_100_CONTINUE

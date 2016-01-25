@@ -31,8 +31,21 @@ typedef struct
     const char *ext;
     uint32_t ext_len;
     uint8_t post_form_urlencoded;
+
     char *post_content;
     uint32_t post_length;
+
+    zval *zdata;
+
+    zval *zrequest_object;
+
+    zval *zserver;
+    zval *zheader;
+    zval *zget;
+    zval *zpost;
+    zval *zcookie;
+    zval *zrequest;
+    zval *zfiles;
 } http_request;
 
 typedef struct
@@ -41,6 +54,9 @@ typedef struct
     int version;
     int status;
     swString *cookie;
+    zval *zresponse_object;
+    zval *zheader;
+    zval *zcookie;
 } http_response;
 
 typedef struct
@@ -62,9 +78,25 @@ typedef struct
     http_request request;
     http_response response;
 
-    zval *zresponse;
-    zval *zrequest;
-    zval *zserver;
+#if PHP_MAJOR_VERSION >= 7
+    struct
+    {
+        zval zrequest_object;
+        zval zrequest;
+        zval zserver;
+        zval zheader;
+        zval zget;
+        zval zpost;
+        zval zfiles;
+        zval zcookie;
+    } request_stack;
+    struct
+    {
+        zval zresponse_object;
+        zval zheader;
+        zval zcookie;
+    } response_stack;
+#endif
 
     php_http_parser parser;
 	multipart_parser *mt_parser;
@@ -82,6 +114,7 @@ typedef struct
 int swoole_websocket_onMessage(swEventData *req);
 int swoole_websocket_onHandshake(swoole_http_client *client);
 void swoole_websocket_onOpen(swoole_http_client *client);
+void swoole_websocket_onReuqest(swoole_http_client *client);
 int swoole_websocket_isset_onMessage(void);
 void swoole_http_request_free(swoole_http_client *client TSRMLS_DC);
 

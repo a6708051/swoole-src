@@ -54,7 +54,7 @@ void swWorker_signal_init(void)
     swSignal_add(SIGUSR2, NULL);
     //swSignal_add(SIGINT, swWorker_signal_handler);
     swSignal_add(SIGTERM, swWorker_signal_handler);
-    swSignal_add(SIGALRM, swTimer_signal_handler);
+    swSignal_add(SIGALRM, swSystemTimer_signal_handler);
     //for test
     swSignal_add(SIGVTALRM, swWorker_signal_handler);
 }
@@ -74,7 +74,7 @@ void swWorker_signal_handler(int signo)
         }
         break;
     case SIGALRM:
-        swTimer_signal_handler(SIGALRM);
+        swSystemTimer_signal_handler(SIGALRM);
         break;
     /**
      * for test
@@ -136,6 +136,11 @@ int swWorker_onTask(swFactory *factory, swEventData *task)
 {
     swServer *serv = factory->ptr;
     swString *package = NULL;
+    swDgramPacket *header;
+
+#ifdef SW_USE_OPENSSL
+    swConnection *conn;
+#endif
 
     factory->last_from_id = task->info.from_id;
     //worker busy
@@ -153,9 +158,11 @@ int swWorker_onTask(swFactory *factory, swEventData *task)
             break;
         }
         do_task:
-        factory->onTask(factory, task);
-        SwooleWG.request_count++;
-        sw_atomic_fetch_add(&SwooleStats->request_count, 1);
+        {
+            serv->onReceive(serv, task);
+            SwooleWG.request_count++;
+            sw_atomic_fetch_add(&SwooleStats->request_count, 1);
+        }
         if (task->info.type == SW_EVENT_PACKAGE_END)
         {
             package->length = 0;
@@ -170,8 +177,7 @@ int swWorker_onTask(swFactory *factory, swEventData *task)
         {
             break;
         }
-        //input buffer
-        package = SwooleWG.buffer_input[task->info.from_id];
+        package = swWorker_get_buffer(serv, task->info.from_id);
         //merge data to package buffer
         memcpy(package->str + package->length, task->data, task->info.len);
         package->length += task->info.len;
@@ -186,17 +192,51 @@ int swWorker_onTask(swFactory *factory, swEventData *task)
     case SW_EVENT_UDP:
     case SW_EVENT_UDP6:
     case SW_EVENT_UNIX_DGRAM:
-        SwooleWG.request_count++;
-        sw_atomic_fetch_add(&SwooleStats->request_count, 1);
-        factory->onTask(factory, task);
+        package = swWorker_get_buffer(serv, task->info.from_id);
+        swString_append_ptr(package, task->data, task->info.len);
+
+        if (package->offset == 0)
+        {
+            header = (swDgramPacket *) package->str;
+            package->offset = header->length;
+        }
+
+        //one packet
+        if (package->offset == package->length - sizeof(swDgramPacket))
+        {
+            SwooleWG.request_count++;
+            sw_atomic_fetch_add(&SwooleStats->request_count, 1);
+            serv->onPacket(serv, task);
+            swString_clear(package);
+        }
         break;
 
     case SW_EVENT_CLOSE:
+#ifdef SW_USE_OPENSSL
+        conn = swServer_connection_verify(serv, task->info.fd);
+        if (conn && conn->ssl_client_cert.length)
+        {
+            free(conn->ssl_client_cert.str);
+            bzero(&conn->ssl_client_cert, sizeof(conn->ssl_client_cert.str));
+        }
+#endif
         factory->end(factory, task->info.fd);
         break;
 
     case SW_EVENT_CONNECT:
-        serv->onConnect(serv, task->info.fd, task->info.from_id);
+#ifdef SW_USE_OPENSSL
+        //SSL client certificate
+        if (task->info.len > 0)
+        {
+            conn = swServer_connection_verify(serv, task->info.fd);
+            conn->ssl_client_cert.str = strndup(task->data, task->info.len);
+            conn->ssl_client_cert.size = conn->ssl_client_cert.length = task->info.len;
+        }
+#endif
+        if (serv->onConnect)
+        {
+            serv->onConnect(serv, &task->info);
+        }
         break;
 
     case SW_EVENT_FINISH:
@@ -216,9 +256,10 @@ int swWorker_onTask(swFactory *factory, swEventData *task)
     serv->workers[SwooleWG.id].status = SW_WORKER_IDLE;
 
     //maximum number of requests, process will exit.
-    if (!SwooleWG.run_always && SwooleWG.request_count > SwooleWG.max_request)
+    if (!SwooleWG.run_always && SwooleWG.request_count >= SwooleWG.max_request)
     {
         SwooleG.running = 0;
+        SwooleG.main_reactor->running = 0;
     }
     return SW_OK;
 }
@@ -251,7 +292,7 @@ void swWorker_onStart(swServer *serv)
             group = getgrnam(SwooleG.group);
             if (!group)
             {
-                swSysError("get group [%s] info failed.", SwooleG.group);
+                swWarn("get group [%s] info failed.", SwooleG.group);
             }
         }
         //get user info
@@ -260,7 +301,7 @@ void swWorker_onStart(swServer *serv)
             passwd = getpwnam(SwooleG.user);
             if (!passwd)
             {
-                swSysError("get user [%s] info failed.", SwooleG.user);
+                swWarn("get user [%s] info failed.", SwooleG.user);
             }
         }
         //chroot
@@ -334,13 +375,16 @@ void swWorker_clean(void)
     for (i = 0; i < serv->worker_num + SwooleG.task_worker_num; i++)
     {
         worker = swServer_get_worker(serv, i);
-        if (worker->pipe_worker)
+        if (SwooleG.main_reactor)
         {
-            swReactor_wait_write_buffer(SwooleG.main_reactor, worker->pipe_worker);
-        }
-        if (worker->pipe_master)
-        {
-            swReactor_wait_write_buffer(SwooleG.main_reactor, worker->pipe_master);
+            if (worker->pipe_worker)
+            {
+                swReactor_wait_write_buffer(SwooleG.main_reactor, worker->pipe_worker);
+            }
+            if (worker->pipe_master)
+            {
+                swReactor_wait_write_buffer(SwooleG.main_reactor, worker->pipe_master);
+            }
         }
     }
 }
@@ -499,7 +543,7 @@ int swWorker_send2worker(swWorker *dst_worker, void *buf, int n, int flag)
         msg.mtype = dst_worker->id + 1;
         memcpy(&msg.buf, buf, n);
 
-        return dst_worker->pool->queue->in(dst_worker->pool->queue, (swQueue_data *) &msg, n);
+        return swMsgQueue_push(dst_worker->pool->queue, (swQueue_data *) &msg, n);
     }
 
     if ((flag & SW_PIPE_NONBLOCK) && SwooleG.main_reactor)

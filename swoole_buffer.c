@@ -20,6 +20,7 @@ static PHP_METHOD(swoole_buffer, __construct);
 static PHP_METHOD(swoole_buffer, __destruct);
 static PHP_METHOD(swoole_buffer, append);
 static PHP_METHOD(swoole_buffer, substr);
+static PHP_METHOD(swoole_buffer, read);
 static PHP_METHOD(swoole_buffer, write);
 static PHP_METHOD(swoole_buffer, expand);
 static PHP_METHOD(swoole_buffer, clear);
@@ -29,8 +30,8 @@ static const zend_function_entry swoole_buffer_methods[] =
     PHP_ME(swoole_buffer, __construct, NULL, ZEND_ACC_PUBLIC | ZEND_ACC_CTOR)
     PHP_ME(swoole_buffer, __destruct, NULL, ZEND_ACC_PUBLIC | ZEND_ACC_DTOR)
     PHP_ME(swoole_buffer, substr, NULL, ZEND_ACC_PUBLIC)
-    PHP_MALIAS(swoole_buffer, read, substr, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_buffer, write, NULL, ZEND_ACC_PUBLIC)
+    PHP_ME(swoole_buffer, read, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_buffer, append, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_buffer, expand, NULL, ZEND_ACC_PUBLIC)
     PHP_ME(swoole_buffer, clear, NULL, ZEND_ACC_PUBLIC)
@@ -65,9 +66,6 @@ static PHP_METHOD(swoole_buffer, __construct)
         php_error_docref(NULL TSRMLS_CC, E_ERROR, "buffer size must not exceed %d", SW_STRING_BUFFER_MAXLEN);
         RETURN_FALSE;
     }
-
-    zval *zres;
-    SW_MAKE_STD_ZVAL(zres,0);
 
     swString *buffer = swString_new(size);
     if (buffer == NULL)
@@ -170,7 +168,7 @@ static PHP_METHOD(swoole_buffer, write)
 {
     long offset;
     char *new_str;
-    int length;
+    zend_size_t length;
 
     if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ls", &offset, &new_str, &length) == FAILURE)
     {
@@ -189,6 +187,29 @@ static PHP_METHOD(swoole_buffer, write)
     }
     memcpy(buffer->str + offset, new_str, length);
     RETURN_TRUE;
+}
+
+static PHP_METHOD(swoole_buffer, read)
+{
+    long offset;
+    long length;
+
+    if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ll", &offset, &length) == FAILURE)
+    {
+        RETURN_FALSE;
+    }
+    swString *buffer = swoole_get_object(getThis());
+    if (offset < 0)
+    {
+        offset = buffer->length + offset;
+    }
+    offset += buffer->offset;
+    if (length > buffer->size - offset)
+    {
+        php_error_docref(NULL TSRMLS_CC, E_WARNING, "no enough data.");
+        RETURN_FALSE;
+    }
+    SW_RETURN_STRINGL(buffer->str + offset, length, 1);
 }
 
 static PHP_METHOD(swoole_buffer, expand)

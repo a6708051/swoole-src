@@ -4,6 +4,15 @@ Swoole
 
 Swoole is an event-based & concurrent framework for internet applications, written in C, for PHP.
 
+__Document__: <https://rawgit.com/tchiotludo/swoole-ide-helper/english/docs/index.html>
+
+__IDE Helper__: <https://github.com/tchiotludo/swoole-ide-helper>
+
+__中文文档__: <http://wiki.swoole.com/>
+
+__IRC__:  <http://webchat.freenode.net/?channels=swoole&uio=d4>
+
+
 event-based
 ------
 
@@ -12,32 +21,33 @@ The network layer in Swoole is event-based and takes full advantage of the under
 concurrent
 ------
 
-In the request processing part, Swoole uses a multi-process model. Every process works as a worker. All business logic is executed in workers, synchronously.
+On the request processing part, Swoole uses a multi-process model. Every process works as a worker. All business logic is executed in workers, synchronously.
 
 With the synchronous logic execution, you can easily write large and robust applications and take advantage of almost all libraries available to the PHP community.
 
 in-memory
 ------
 
-Unlike traditional apache/php-fpm stuff, the memory allocated in Swoole will not be free'd after a request, which can improve preformance a lot.
+Unlike traditional apache/php-fpm stuff, the memory allocated in Swoole will not be free'd after a request, which can improve performance a lot.
 
 
 ## Why Swoole?
 
 Traditional PHP applications almost always run behind Apache/Nginx, without much control of the request. This brings several limitations:
 
-1. All memory is free'd after request. All PHP code needs be re-compiled on every request. Even with opcache enabled, all opcode still needs to be re-executed.
+1. All memory will be freed after request. All PHP code needs be re-compiled on every request. Even with opcache enabled, all opcode still needs to be re-executed.
 2. It is almost impossible to implement long connections and connections pooling techniques.
 3. Implementing asynchronous tasks requires 3rd party queue servers, such as rabbitmq and beanstalkd.
 4. Implementing realtime applications such as chatting server requires 3rd party languages, nodejs for example.
 
 This why Swoole appeared. Swoole extends the use cases of PHP, and brings all these possibilities to the PHP world. 
-By using Swoole, you can build enhanced web applications with more control, realtime chatting servers, etc more easily.
+By using Swoole, you can build enhanced web applications with more control, real-time chatting servers, etc more easily.
 
 ## Requirements
 
-* PHP 5.3+
+* PHP 5.3.10 or later
 * Linux, OS X and basic Windows support (Thanks to cygwin)
+* GCC 4.4 or later
 
 ## Installation
 
@@ -62,7 +72,6 @@ By using Swoole, you can build enhanced web applications with more control, real
 
 Swoole includes components for different purposes: Server, Task Worker, Timer, Event and Async IO. With these components,
 Swoole allows you to build many features.
-
 
 ### Server
 
@@ -129,6 +138,50 @@ $ws->on('close', function ($ws, $fd) {
 });
 
 $ws->start();
+```
+
+### Real async-mysql client
+```php
+$db = new mysqli;
+$db->connect('127.0.0.1', 'root', 'root', 'test');
+swoole_mysql_query($db, "show tables", function(mysqli $db, $r) {
+    var_dump($db->_affected_rows, $db->_insert_id, $r);
+});
+```
+
+### Real async-redis client
+```php
+$client = new swoole_redis;
+$client->connect('127.0.0.1', 6379, function (swoole_redis $client, $result) {
+    echo "connect\n";
+    var_dump($result);
+    $client->set('key', 'swoole', function (swoole_redis $client, $result) {
+        var_dump($result);
+        $client->get('key', function (swoole_redis $client, $result) {
+            var_dump($result);
+            $client->close();
+        });
+    });
+});
+```
+
+### Multi-port and mixed protocol
+
+```php
+$serv = new swoole_http_server("127.0.0.1", 9501, SWOOLE_BASE);
+
+$port2 = $serv->listen("0.0.0.0", 9502, SWOOLE_SOCK_TCP);
+$port2->on('receive', function (swoole_server $serv, $fd, $from_id, $data) {
+    var_dump($data);
+    $serv->send($fd, $data);    
+});
+
+$serv->on('request', function($req, $resp) {
+    $resp->end("<h1>Hello World</h1>");
+});
+
+
+$serv->start();
 ```
 
 ### Task Worker
@@ -230,7 +283,7 @@ The `$flag` is a mask to indicate what type of events we should get notified, ca
 
 ### Async IO
 
-Swoole's Async IO provide the ability to read/write file and lookup dns records asynchronously. The following 
+Swoole's Async IO provides the ability to read/write files and lookup dns records asynchronously. The following
 are signatures for these functions:
 
 
@@ -250,7 +303,7 @@ Refer [API Reference](http://wiki.swoole.com/wiki/page/183.html) for more detail
 
 ### Client
 
-Swoole also provides a Client component to build tcp/dup clients in both asynchronous and synchronous ways.
+Swoole also provides a Client component to build tcp/udp clients in both asynchronous and synchronous ways.
 Swoole uses the `swoole_client` class to expose all its functionalities.
 
 synchronous blocking:
@@ -316,7 +369,7 @@ Refer [API Reference](http://wiki.swoole.com/wiki/page/3.html) for more detail i
 ## API Reference
 
 * [中文](http://wiki.swoole.com/) 
-* [English](https://github.com/matyhtf/swoole_doc/blob/master/docs/en/index.md) (will be ready soon)
+* [English](https://cdn.rawgit.com/tchiotludo/swoole-ide-helper/dd73ce0dd949870daebbf3e8fee64361858422a1/docs/index.html)
 
 ## Related Projects
 

@@ -31,11 +31,11 @@
 		<email>shenzhe163@gmail.com</email>
 		<active>yes</active>
 	</developer>
-    <date>2015-06-01</date>
-    <time>09:48:51</time>
+    <date>2015-12-31</date>
+    <time>14:48:51</time>
     <version>
-        <release>1.7.17</release>
-        <api>1.7.17</api>
+		<release>1.7.22</release>
+		<api>1.7.22</api>
     </version>
     <stability>
         <release>stable</release>
@@ -43,14 +43,13 @@
     </stability>
     <license uri="http://www.apache.org/licenses/LICENSE-2.0.html">Apache2.0</license>
     <notes>
-- Fixed async swoole_client send data incomplete
-- Removed task_dispatch_mode server configuration 
-- Added pipe_buffer_size server configuration  
-- Pipeline memory buffer default size is adjusted to 32M
-- Http Server Header adjust the maximum length of 128 to 8192
-- Fixed swoole_process->pop cannot use
-- Fixed taskwait error in MacOS and CygWin
-- Added swoole_table->exist
+- Fixed memory leak in PHP7
+- Fixed core dump in PHP7
+- Added swoole_mysql_query
+- Fixed swoole_table->del damage the memory
+- Added swoole_websocket_server->exist
+- Added swoole_server ssl_client_cert_file settings
+- Fixed timer exec_time overflow cause stop
     </notes>
 	<contents>
 		<dir name="/">
@@ -79,6 +78,7 @@
 				<file role="src" name="sha1.h" />
 				<file role="src" name="base64.h" />
 				<file role="src" name="mqtt.h" />
+				<file role="src" name="error.h" />
 			</dir>
 			<dir name="examples">
 				<dir name="async">
@@ -97,8 +97,6 @@
 				</dir>
 				<dir name="server">
 					<file role="src" name="echo.php" />
-					<file role="src" name="unix_dgram.php" />
-					<file role="src" name="unix_stream.php" />
 					<file role="src" name="msgqueue.php" />
 				</dir>
 				<dir name="http">
@@ -119,6 +117,11 @@
 				<dir name="event">
 					<file role="src" name="stream.php" />
 					<file role="src" name="sockets.php" />
+				</dir>
+				<dir name="unix">
+					<file role="src" name="dgram_server.php" />
+					<file role="src" name="stream_client.php" />
+					<file role="src" name="dgram_client.php" />
 				</dir>
 				<dir name="process">
 					<file role="src" name="worker.php" />
@@ -165,9 +168,12 @@
                     <file role="src" name="interval.php" />
                     <file role="src" name="tick.php" />
                 </dir>
+                <dir name="mysql">
+                    <file role="src" name="async_mysql2.php" />
+                    <file role="src" name="real_async.php" />
+                </dir>
 				<file role="src" name="server.php" />
 				<file role="src" name="mysql_proxy_server.php" />
-				<file role="src" name="async_mysql2.php" />
 				<file role="src" name="proxy.php" />
 				<file role="src" name="proxy_sync.php" />
 				<file role="src" name="timer.php" />
@@ -176,6 +182,7 @@
 				<file role="doc" name="test.jpg" />
 			</dir>
 			<file role="src" name="php_swoole.h" />
+			<file role="src" name="php7_wrapper.h" />
 			<file role="src" name="swoole_config.h" />
 			<file role="src" name="swoole.c" />
 			<file role="src" name="swoole_server.c" />
@@ -187,9 +194,13 @@
 			<file role="src" name="swoole_process.c" />
 			<file role="src" name="swoole_table.c" />
 			<file role="src" name="swoole_buffer.c" />
-			<file role="src" name="swoole_http.c" />
+			<file role="src" name="swoole_http_server.c" />
+			<file role="src" name="swoole_http_client.c" />
 			<file role="src" name="swoole_http.h" />
-			<file role="src" name="swoole_websocket.c" />
+			<file role="src" name="swoole_websocket_server.c" />
+			<file role="src" name="swoole_atomic.c" />
+			<file role="src" name="swoole_mysql.c" />
+			<file role="src" name="swoole_redis.c" />
 			<dir name="thirdparty">
 				<file role="src" name="php_http_parser.c" />
 				<file role="src" name="php_http_parser.h" />
@@ -206,6 +217,7 @@
 					<file role="src" name="Channel.c" />
 					<file role="src" name="string.c" />
 					<file role="src" name="array.c" />
+					<file role="src" name="list.c" />
 				</dir>
 				<dir name="memory">
 					<file role="src" name="ShareMemory.c" />
@@ -233,9 +245,6 @@
 					<file role="src" name="PipeEventfd.c" />
 					<file role="src" name="PipeUnsock.c" />
 				</dir>
-				<dir name="queue">
-					<file role="src" name="Msg.c" />
-				</dir>
 				<dir name="lock">
 					<file role="src" name="Semaphore.c" />
 					<file role="src" name="Mutex.c" />
@@ -253,6 +262,7 @@
 					<file role="src" name="TaskWorker.c" />
 					<file role="src" name="ThreadPool.c" />
 					<file role="src" name="Worker.c" />
+					<file role="src" name="Manager.c" />
 					<file role="src" name="EventTimer.c" />
 					<file role="src" name="DNS.c" />
 				</dir>
@@ -260,6 +270,7 @@
 					<file role="src" name="base.c" />
 					<file role="src" name="gcc_aio.c" />
 					<file role="src" name="linux_aio.c" />
+					<file role="src" name="msg_queue.c" />
 					<file role="src" name="sendfile.c" />
 					<file role="src" name="signal.c" />
 					<file role="src" name="timer.c" />

@@ -41,6 +41,16 @@ void swoole_init(void)
     SwooleG.pagesize = getpagesize();
     SwooleG.pid = getpid();
 
+    //get system uname
+    uname(&SwooleG.uname);
+
+#if defined(HAVE_REUSEPORT) && defined(HAVE_EPOLL)
+    if (swoole_version_compare(SwooleG.uname.release, "3.9.0") >= 0)
+    {
+        SwooleG.reuse_port = 1;
+    }
+#endif
+
     //random seed
     srandom(time(NULL));
 
@@ -100,11 +110,11 @@ void swoole_clean(void)
         SwooleG.memory_pool = NULL;
         if (SwooleG.timer.fd > 0)
         {
-            SwooleG.timer.free(&SwooleG.timer);
+            swTimer_free(&SwooleG.timer);
         }
         if (SwooleG.main_reactor)
         {
-        	SwooleG.main_reactor->free(SwooleG.main_reactor);
+            SwooleG.main_reactor->free(SwooleG.main_reactor);
         }
         bzero(&SwooleG, sizeof(SwooleG));
     }
@@ -217,10 +227,12 @@ int swoole_type_size(char type)
     case 's':
     case 'S':
     case 'n':
+    case 'v':
         return 2;
     case 'l':
     case 'L':
     case 'N':
+    case 'V':
         return 4;
     default:
         return 0;
@@ -342,19 +354,50 @@ void swoole_update_time(void)
     }
 }
 
-uint64_t swoole_ntoh64(uint64_t n64)
+int swoole_version_compare(char *version1, char *version2)
 {
-    uint32_t tmp;
-    uint32_t n32[2];
-    uint64_t *h64 = (uint64_t*) n32;
-    memcpy(h64, &n64, sizeof(n64));
-    *h64 = n64;
+    int result = 0;
 
-    tmp = n32[0];
-    n32[0] = ntohl(n32[1]);
-    n32[1] = ntohl(tmp);
+    while (result == 0)
+    {
+        char* tail1;
+        char* tail2;
 
-    return *h64;
+        unsigned long ver1 = strtoul(version1, &tail1, 10);
+        unsigned long ver2 = strtoul(version2, &tail2, 10);
+
+        if (ver1 < ver2)
+        {
+            result = -1;
+        }
+        else if (ver1 > ver2)
+        {
+            result = +1;
+        }
+        else
+        {
+            version1 = tail1;
+            version2 = tail2;
+            if (*version1 == '\0' && *version2 == '\0')
+            {
+                break;
+            }
+            else if (*version1 == '\0')
+            {
+                result = -1;
+            }
+            else if (*version2 == '\0')
+            {
+                result = +1;
+            }
+            else
+            {
+                version1++;
+                version2++;
+            }
+        }
+    }
+    return result;
 }
 
 double swoole_microtime(void)
@@ -538,72 +581,6 @@ uint32_t swoole_common_multiple(uint32_t u, uint32_t v)
     return u * v / n_cup;
 }
 
-
-void swFloat2timeval(float timeout, long int *sec, long int *usec)
-{
-    *sec = (int) timeout;
-    *usec = (int) ((timeout * 1000 * 1000) - ((*sec) * 1000 * 1000));
-}
-
-int swRead(int fd, void *buf, int len)
-{
-    int n = 0, nread;
-    sw_errno = 0;
-
-    while (1)
-    {
-        nread = recv(fd, buf + n, len - n, 0);
-
-//		swWarn("Read Len=%d|Errno=%d", nread, errno);
-        //遇到错误
-        if (nread < 0)
-        {
-            //中断
-            if (errno == EINTR)
-            {
-                continue;
-            }
-            //出错了
-            else
-            {
-                if (errno == EAGAIN && n > 0)
-                {
-                    break;
-                }
-                else
-                {
-                    sw_errno = -1; //异常
-                    return SW_ERR;
-                }
-            }
-        }
-        //连接已关闭
-        //需要检测errno来区分是EAGAIN还是ECONNRESET
-        else if (nread == 0)
-        {
-            //这里直接break,保证读到的数据被处理
-            break;
-        }
-        else
-        {
-            n += nread;
-            //内存读满了，还可能有数据
-            if (n == len)
-            {
-                sw_errno = EAGAIN;
-                break;
-            }
-            //已读完 n < len
-            else
-            {
-                break;
-            }
-        }
-
-    }
-    return n;
-}
-
 /**
  * for GDB
  */
@@ -692,60 +669,6 @@ void swoole_fcntl_set_block(int sock, int nonblock)
     {
         swSysError("fcntl(%d, SETFL, opts) failed.", sock);
     }
-}
-
-int swAccept(int server_socket, struct sockaddr_in *addr, int addr_len)
-{
-    int conn_fd;
-    bzero(addr, addr_len);
-
-    while (1)
-    {
-#ifdef SW_USE_ACCEPT4
-        conn_fd = accept4(server_socket, (struct sockaddr *) addr, (socklen_t *) &addr_len, SOCK_NONBLOCK);
-#else
-        conn_fd = accept(server_socket, (struct sockaddr *) addr, (socklen_t *) &addr_len);
-#endif
-        if (conn_fd < 0)
-        {
-            //中断
-            if (errno == EINTR)
-            {
-                continue;
-            }
-            else
-            {
-                swTrace("accept failed. Error: %s[%d]", strerror(errno), errno);
-                return SW_ERR;
-            }
-        }
-#ifndef SW_USE_ACCEPT4
-        swSetNonBlock(conn_fd);
-#endif
-        break;
-    }
-    return conn_fd;
-}
-
-int swSetTimeout(int sock, double timeout)
-{
-    int ret;
-    struct timeval timeo;
-    timeo.tv_sec = (int) timeout;
-    timeo.tv_usec = (int) ((timeout - timeo.tv_sec) * 1000 * 1000);
-    ret = setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (void *) &timeo, sizeof(timeo));
-    if (ret < 0)
-    {
-        swWarn("setsockopt(SO_SNDTIMEO) failed. Error: %s[%d]", strerror(errno), errno);
-        return SW_ERR;
-    }
-    ret = setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (void *) &timeo, sizeof(timeo));
-    if (ret < 0)
-    {
-        swWarn("setsockopt(SO_RCVTIMEO) failed. Error: %s[%d]", strerror(errno), errno);
-        return SW_ERR;
-    }
-    return SW_OK;
 }
 
 static int *swoole_kmp_borders(char *needle, size_t nlen)

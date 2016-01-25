@@ -16,10 +16,12 @@
 
 #include "swoole.h"
 #include "Connection.h"
+#include "async.h"
 
 static void swReactor_onTimeout_and_Finish(swReactor *reactor);
 static void swReactor_onTimeout(swReactor *reactor);
 static void swReactor_onFinish(swReactor *reactor);
+static int swReactor_defer(swReactor *reactor, swCallback callback, void *data);
 
 int swReactor_create(swReactor *reactor, int max_event)
 {
@@ -52,13 +54,15 @@ int swReactor_create(swReactor *reactor, int max_event)
     reactor->running = 1;
 
     reactor->setHandle = swReactor_setHandle;
+
     reactor->onFinish = swReactor_onFinish;
     reactor->onTimeout = swReactor_onTimeout;
 
     reactor->write = swReactor_write;
+    reactor->defer = swReactor_defer;
     reactor->close = swReactor_close;
 
-    reactor->socket_array = swArray_new(1024, sizeof(swConnection), 0);
+    reactor->socket_array = swArray_new(1024, sizeof(swConnection));
     if (!reactor->socket_array)
     {
         swWarn("create socket array failed.");
@@ -109,6 +113,20 @@ int swReactor_setHandle(swReactor *reactor, int _fdtype, swReactor_handle handle
         return SW_ERR;
     }
 
+    return SW_OK;
+}
+
+static int swReactor_defer(swReactor *reactor, swCallback callback, void *data)
+{
+    swDefer_callback *cb = sw_malloc(sizeof(swDefer_callback));
+    if (!cb)
+    {
+        swWarn("malloc(%ld) failed.", sizeof(swDefer_callback));
+        return SW_ERR;
+    }
+    cb->callback = callback;
+    cb->data = data;
+    LL_APPEND(reactor->defer_callback_list, cb);
     return SW_OK;
 }
 
@@ -172,11 +190,23 @@ static void swReactor_onTimeout_and_Finish(swReactor *reactor)
     //check timer
     if (reactor->check_timer)
     {
-        SwooleG.timer.select(&SwooleG.timer);
+        swTimer_select(&SwooleG.timer);
     }
     if (SwooleG.serv && swIsMaster())
     {
         swoole_update_time();
+    }
+    //client exit
+    if (SwooleG.serv == NULL && SwooleG.timer.num <= 0)
+    {
+        if (reactor->event_num == 1 && SwooleAIO.task_num == 1)
+        {
+            reactor->running = 0;
+        }
+        else if (reactor->event_num == 0)
+        {
+            reactor->running = 0;
+        }
     }
 }
 
@@ -193,17 +223,23 @@ static void swReactor_onTimeout(swReactor *reactor)
 
 static void swReactor_onFinish(swReactor *reactor)
 {
-    //client exit
-    if (SwooleG.serv == NULL && reactor->event_num == 0)
-    {
-        SwooleG.running = 0;
-    }
     //check signal
     if (reactor->singal_no)
     {
         swSignal_callback(reactor->singal_no);
         reactor->singal_no = 0;
     }
+    //defer callback
+    swDefer_callback *cb, *tmp;
+    LL_FOREACH(reactor->defer_callback_list, cb)
+    {
+        cb->callback(cb->data);
+    }
+    LL_FOREACH_SAFE(reactor->defer_callback_list, cb, tmp)
+    {
+        sw_free(cb);
+    }
+    reactor->defer_callback_list = NULL;
     swReactor_onTimeout_and_Finish(reactor);
 }
 
@@ -221,13 +257,6 @@ int swReactor_close(swReactor *reactor, int fd)
         swBuffer_free(socket->in_buffer);
         socket->in_buffer = NULL;
     }
-
-#ifdef SW_USE_OPENSSL
-    if (socket->ssl)
-    {
-        swSSL_close(socket);
-    }
-#endif
 
     bzero(socket, sizeof(swConnection));
     return close(fd);
@@ -248,6 +277,11 @@ int swReactor_write(swReactor *reactor, int fd, void *buf, int n)
 
     if (swBuffer_empty(buffer))
     {
+        if (socket->ssl_send)
+        {
+            goto do_buffer;
+        }
+
         do_send:
         ret = swConnection_send(socket, buf, n, 0);
 
@@ -316,9 +350,16 @@ int swReactor_write(swReactor *reactor, int fd, void *buf, int n)
 
         if (buffer->length > SwooleG.socket_buffer_size)
         {
-            swWarn("pipe buffer overflow, reactor will block.");
-            swYield();
-            swSocket_wait(fd, SW_SOCKET_OVERFLOW_WAIT, SW_EVENT_WRITE);
+            if (SwooleG.socket_dontwait)
+            {
+                return SW_ERR;
+            }
+            else
+            {
+                swWarn("socket[fd=%d, type=%d] output buffer overflow, reactor will block.", fd, socket->fdtype);
+                swYield();
+                swSocket_wait(fd, SW_SOCKET_OVERFLOW_WAIT, SW_EVENT_WRITE);
+            }
         }
 
         if (swBuffer_append(buffer, buf, n) < 0)

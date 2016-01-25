@@ -78,9 +78,6 @@ int swFactoryThread_create(swFactory *factory, int worker_num)
     factory->shutdown = swFactoryThread_shutdown;
     factory->notify = swFactory_notify;
 
-    factory->onTask = NULL;
-    factory->onFinish = NULL;
-
     object->workers.onStart = swFactoryThread_onStart;
     object->workers.onStop = swFactoryThread_onStop;
     object->workers.onTask = swFactoryThread_onTask;
@@ -94,10 +91,6 @@ int swFactoryThread_create(swFactory *factory, int worker_num)
 static int swFactoryThread_start(swFactory *factory)
 {
     swFactoryThread *object = factory->object;
-    if (swFactory_check_callback(factory) < 0)
-    {
-        return SW_ERR;
-    }
     swThreadPool_run(&object->workers);
     return SW_OK;
 }
@@ -163,6 +156,7 @@ int swFactoryThread_dispatch(swFactory *factory, swDispatchData *task)
         }
         //converted fd to session_id
         task->data.info.fd = conn->session_id;
+        task->data.info.from_fd = conn->from_fd;
     }
 
     int mem_size = sizeof(swDataHead) + task->data.info.len + 1;
@@ -237,7 +231,7 @@ static void swFactoryThread_onStop(swThreadPool *pool, int id)
 static int swFactoryThread_onTask(swThreadPool *pool, void *data, int len)
 {
     swFactory *factory = pool->ptr2;
-    int ret = factory->onTask(factory, (swEventData*) data);
+    int ret = swWorker_onTask(factory, (swEventData*) data);
     sw_free(data);
     return ret;
 }

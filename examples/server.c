@@ -65,7 +65,7 @@ int main(int argc, char **argv)
 	}
 
 	//swServer_addListen(&serv, SW_SOCK_UDP, "127.0.0.1", 9500);
-	swServer_add_listener(&serv, SW_SOCK_TCP, "127.0.0.1", 9501);
+	swServer_add_port(&serv, SW_SOCK_TCP, "127.0.0.1", 9501);
 	//swServer_addListen(&serv, SW_SOCK_UDP, "127.0.0.1", 9502);
 	//swServer_addListen(&serv, SW_SOCK_UDP, "127.0.0.1", 8888);
 
@@ -108,7 +108,7 @@ void my_onTimer(swServer *serv, int interval)
 
 static int receive_count = 0;
 
-int my_onReceive(swFactory *factory, swEventData *req)
+int my_onReceive(swServer *serv, swEventData *req)
 {
 	int ret;
 	char resp_data[SW_BUFFER_SIZE];
@@ -121,7 +121,7 @@ int my_onReceive(swFactory *factory, swEventData *req)
 
 	snprintf(resp_data, resp.info.len, "Server:%s", req->data);
 	resp.data = resp_data;
-	ret = factory->finish(factory, &resp);
+	ret = serv->send(serv, &resp);
 	if (ret < 0)
 	{
 		printf("send to client fail.errno=%d\n", errno);
